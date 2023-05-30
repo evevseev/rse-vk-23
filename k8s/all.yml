@@ -1,0 +1,246 @@
+# Task 0 - For debugging
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox
+spec:
+  containers:
+  - name: busybox
+    image: busybox
+    command:
+      - sleep
+      - "3600"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+---      
+# Task 1 — Simple pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: static-message-nginx-test-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.14.2
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - mountPath: /etc/nginx
+      readOnly: true
+      name: nginx-conf
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+  volumes:
+  - name: nginx-conf
+    configMap:
+      name: static-message-nginx-conf
+---
+# Task 2 — Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: static-message-nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: static-message-nginx
+  template:
+    metadata:
+      labels:
+        app: static-message-nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.14.2
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - mountPath: /etc/nginx
+          readOnly: true
+          name: nginx-conf
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: nginx-conf
+        configMap:
+          name: static-message-nginx-conf
+---
+# Task 3 — Cluster IP
+apiVersion: v1
+kind: Service
+metadata:
+  name: static-message-nginx
+spec:
+  selector:
+    app: static-message-nginx
+  ports:
+    - protocol: TCP
+      port: 80
+---
+# Task 4 — Statefulset 
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: reviews
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reviews
+  template:
+    metadata:
+      labels:
+        app: reviews
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.14.2
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - mountPath: /etc/nginx
+          readOnly: true
+          name: nginx-conf
+        - mountPath: /usr/share/nginx/webdav-data
+          name: webdav-data
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: nginx-conf
+        configMap:
+          name: webdav-nginx-conf
+      - name: webdav-data
+        persistentVolumeClaim:
+          claimName: webdav-data
+  volumeClaimTemplates:
+  - metadata:
+      name: webdav-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews-cats
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: reviews-0
+  ports:
+    - protocol: TCP
+      port: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews-dogs
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: reviews-1
+  ports:
+    - protocol: TCP
+      port: 80
+---
+# Task 6 — Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minimal-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /cats
+        pathType: Prefix
+        backend:
+          service:
+            name: reviews-cats
+            port:
+              number: 80
+
+      - path: /dogs
+        pathType: Prefix
+        backend:
+          service:
+            name: reviews-dogs
+            port:
+              number: 80
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: static-message-nginx-conf
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes  1;
+    events {
+      worker_connections  10240;
+    }
+    http {
+      server {
+        listen       80;
+        server_name  localhost;
+        location / {
+          return 200 'Cats and Dogs Review App';
+        }
+      }
+    }
+---
+# Task 4 — Nginx WebDav Cfg
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webdav-nginx-conf
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes  1;
+    events {
+      worker_connections  10240;
+    }
+    http {
+      server {
+        listen       80;
+        server_name  localhost;
+
+        location /upload {
+          dav_methods PUT DELETE MKCOL COPY MOVE;
+          create_full_put_path on;
+          dav_access user:rw group:rw all:r;
+          client_max_body_size 0;
+          alias /usr/share/nginx/webdav-data;
+        }
+
+        location / {
+          root /usr/share/nginx/webdav-data;
+        }
+      }
+    }
+`
